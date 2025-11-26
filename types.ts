@@ -40,9 +40,11 @@ export interface RouteOption {
   id: string;
   title: string;       // "BTS + Walking"
   totalDuration: string;
+  totalDistance: string; // Added field for total distance
   totalCost: string;
   steps: RouteStep[];
   recommended: boolean;
+  coordinates?: [number, number][]; // Array of [lat, lng] for drawing the path
 }
 
 export enum AppStatus {

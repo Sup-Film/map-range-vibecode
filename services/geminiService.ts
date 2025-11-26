@@ -1,229 +1,186 @@
+import { Location, AnalysisResult, PlaceItem } from "../types";
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { Location, AnalysisResult, RouteOption } from "../types";
+// --- Helper Types for Overpass ---
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+interface OverpassElement {
+  id: number;
+  lat: number;
+  lon: number;
+  tags: {
+    name?: string;
+    "name:th"?: string;
+    "name:en"?: string;
+    amenity?: string;
+    shop?: string;
+    leisure?: string;
+    highway?: string;
+    tourism?: string;
+    office?: string;
+    [key: string]: string | undefined;
+  };
+}
+
+// --- Service Implementation ---
 
 export const analyzeLocation = async (
   location: Location,
   radiusMeters: number
 ): Promise<AnalysisResult> => {
   try {
-    const prompt = `
-      Analyze the geographic area centered at Latitude: ${location.lat}, Longitude: ${location.lng} with a radius of ${radiusMeters} meters.
-      
-      I need a detailed list of specific real-world places found strictly within or very close to this radius.
-      Group them into these categories:
-      1. Residential (Villages, Condos, Apartments)
-      2. Convenience Stores (7-Eleven, Lotus's Go Fresh, CJ, etc.)
-      3. Shopping & Markets (Malls, Supermarkets, Fresh Markets)
-      4. Food & Dining (Restaurants, Cafes, Street Food areas)
-      5. Transportation (BTS/MRT Stations, Bus Stops, Piers, Train Stations)
-      6. Recreation (Parks, Sports Complexes, Gyms, Public Parks)
-      7. Public Services (Post Office, Police Stations, Government Offices, Hospitals/Clinics)
-
-      For each item, provide:
-      - Name (in Thai)
-      - Estimated straight-line distance from center (${location.lat}, ${location.lng}) in kilometers (e.g. "0.5 กม.", "1.2 กม.").
-      - Approximate Latitude and Longitude for the place (important for mapping).
-      - Popularity Score (0.1 to 1.0): Estimate how busy/popular this place is (1.0 = very crowded/popular).
-      - Rating (1.0 to 5.0): Estimated review rating.
-      - Reviews: Estimated review count (integer).
-
-      Also provide a general location name and a brief summary of the area's livability.
-      Output must be in Thai language (ภาษาไทย).
+    // Overpass QL query to fetch relevant nodes around the location
+    const query = `
+      [out:json][timeout:25];
+      (
+        node(around:${radiusMeters},${location.lat},${location.lng})["amenity"];
+        node(around:${radiusMeters},${location.lat},${location.lng})["shop"];
+        node(around:${radiusMeters},${location.lat},${location.lng})["leisure"];
+        node(around:${radiusMeters},${location.lat},${location.lng})["public_transport"];
+        node(around:${radiusMeters},${location.lat},${location.lng})["railway"="station"];
+        node(around:${radiusMeters},${location.lat},${location.lng})["highway"="bus_stop"];
+        node(around:${radiusMeters},${location.lat},${location.lng})["office"="government"];
+      );
+      out body;
+      >;
+      out skel qt;
     `;
 
-    const placeItemSchema = {
-      type: Type.OBJECT,
-      properties: {
-        name: { type: Type.STRING, description: "Name of the place" },
-        distance: { type: Type.STRING, description: "Distance from center e.g. '0.8 กม.'" },
-        lat: { type: Type.NUMBER, description: "Latitude" },
-        lng: { type: Type.NUMBER, description: "Longitude" },
-        popularity: { type: Type.NUMBER, description: "Popularity/Density score 0.1-1.0" },
-        rating: { type: Type.NUMBER, description: "Star rating 1-5" },
-        reviews: { type: Type.NUMBER, description: "Review count" },
-      },
-      required: ["name", "distance", "popularity"]
+    const url = "https://overpass-api.de/api/interpreter";
+    const response = await fetch(url, {
+      method: "POST",
+      body: query,
+    });
+    const data = await response.json();
+    const elements = data.elements as OverpassElement[];
+
+    // Helper to calculate distance
+    const getDistance = (
+      lat1: number,
+      lon1: number,
+      lat2: number,
+      lon2: number
+    ) => {
+      const R = 6371; // km
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) *
+          Math.cos((lat2 * Math.PI) / 180) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
     };
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            locationName: {
-              type: Type.STRING,
-              description: "Name of the area or district in Thai",
-            },
-            summary: {
-              type: Type.STRING,
-              description: "Brief description of the area's livability in Thai",
-            },
-            residential: {
-              type: Type.ARRAY,
-              items: placeItemSchema,
-              description: "List of villages, condos, apartments",
-            },
-            convenience: {
-              type: Type.ARRAY,
-              items: placeItemSchema,
-              description: "List of convenience stores",
-            },
-            shopping: {
-              type: Type.ARRAY,
-              items: placeItemSchema,
-              description: "List of malls and markets",
-            },
-            food: {
-              type: Type.ARRAY,
-              items: placeItemSchema,
-              description: "List of restaurants and food sources",
-            },
-            transport: {
-              type: Type.ARRAY,
-              items: placeItemSchema,
-              description: "List of transportation hubs",
-            },
-            recreation: {
-              type: Type.ARRAY,
-              items: placeItemSchema,
-              description: "List of parks and recreation spots",
-            },
-            public_service: {
-              type: Type.ARRAY,
-              items: placeItemSchema,
-              description: "List of public services and government offices",
-            },
-          },
-          required: ["locationName", "summary", "residential", "convenience", "shopping", "food", "transport", "recreation", "public_service"],
-        },
-      },
-    });
+    // Helper to format place item
+    const formatPlace = (e: OverpassElement): PlaceItem => {
+      const distKm = getDistance(location.lat, location.lng, e.lat, e.lon);
+      const distStr =
+        distKm < 1
+          ? `${(distKm * 1000).toFixed(0)} ม.`
+          : `${distKm.toFixed(1)} กม.`;
 
-    const text = response.text;
-    if (!text) {
-        throw new Error("No response from AI");
-    }
-    
-    // Inject 'source' field to simulate data origin
-    const result = JSON.parse(text) as AnalysisResult;
-    const enhance = (items: any[]) => items?.map(i => ({ ...i, source: 'gemini' })) || [];
-    
-    return {
-      ...result,
-      residential: enhance(result.residential),
-      convenience: enhance(result.convenience),
-      shopping: enhance(result.shopping),
-      food: enhance(result.food),
-      transport: enhance(result.transport),
-      recreation: enhance(result.recreation),
-      public_service: enhance(result.public_service),
+      const name =
+        e.tags["name:th"] ||
+        e.tags["name"] ||
+        e.tags["name:en"] ||
+        "สถานที่ระบุชื่อไม่ได้";
+
+      return {
+        name: name,
+        distance: distStr,
+        lat: e.lat,
+        lng: e.lon,
+        popularity: 0.5,
+        rating: undefined,
+        reviews: undefined,
+        source: "google", 
+      } as PlaceItem;
     };
 
-  } catch (error) {
-    console.error("Gemini Analysis Error:", error);
-    throw new Error("ไม่สามารถวิเคราะห์พื้นที่ได้ในขณะนี้");
-  }
-};
+    // Categorize results
+    const result: AnalysisResult = {
+      locationName: `พื้นที่รอบพิกัด ${location.lat.toFixed(
+        4
+      )}, ${location.lng.toFixed(4)}`,
+      summary: "ข้อมูลจาก OpenStreetMap (วิเคราะห์โดย System)",
+      residential: [],
+      convenience: [],
+      shopping: [],
+      food: [],
+      transport: [],
+      recreation: [],
+      public_service: [],
+    };
 
-export const searchLocation = async (query: string): Promise<Location> => {
-  try {
-    const prompt = `
-      Identify the geographic coordinates (latitude and longitude) for the place named: "${query}".
-      If the query is ambiguous, prefer a prominent location in Thailand.
-      Return the result in JSON format with 'lat' and 'lng' as numbers.
-    `;
+    elements.forEach((e) => {
+      if (!e.tags) return;
+      const item = formatPlace(e);
+      const t = e.tags;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            lat: { type: Type.NUMBER },
-            lng: { type: Type.NUMBER },
-          },
-          required: ["lat", "lng"],
-        },
-      },
-    });
-
-    const text = response.text;
-    if (!text) throw new Error("No response from AI");
-    
-    return JSON.parse(text) as Location;
-  } catch (error) {
-    console.error("Search Error:", error);
-    throw new Error("ไม่พบสถานที่ดังกล่าว");
-  }
-};
-
-export const suggestRoute = async (origin: Location, destination: Location): Promise<RouteOption[]> => {
-  try {
-    const prompt = `
-      Act as a smart navigation assistant for Thailand.
-      Plan a trip from Origin [Lat: ${origin.lat}, Lng: ${origin.lng}] to Destination [Lat: ${destination.lat}, Lng: ${destination.lng}].
-      
-      Provide 2-3 distinct route options prioritizing Public Transportation (BTS, MRT, ARL, Bus, Boat).
-      If public transport is poor, include a Taxi/Ride-hailing option.
-      
-      For each option, provide:
-      1. A short title (e.g. "BTS Green Line + Taxi").
-      2. Total estimated duration (e.g. "45 mins").
-      3. Total estimated cost in THB (e.g. "60-100 THB").
-      4. Step-by-step instructions.
-      5. Mode of transport for each step (walk, bus, train, car, motorcycle).
-      
-      Output in THAI language.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.STRING },
-              title: { type: Type.STRING },
-              totalDuration: { type: Type.STRING },
-              totalCost: { type: Type.STRING },
-              recommended: { type: Type.BOOLEAN },
-              steps: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    instruction: { type: Type.STRING },
-                    distance: { type: Type.STRING },
-                    duration: { type: Type.STRING },
-                    mode: { type: Type.STRING, enum: ['walk', 'bus', 'train', 'car', 'motorcycle'] }
-                  }
-                }
-              }
-            },
-            required: ["id", "title", "totalDuration", "totalCost", "steps"]
-          }
-        }
+      if (
+        t.landuse === "residential" ||
+        t.place === "suburb" ||
+        t.building === "apartments"
+      ) {
+        result.residential.push(item);
+      } else if (
+        t.shop === "convenience" ||
+        t.name?.includes("7-Eleven") ||
+        t.name?.includes("Lotus")
+      ) {
+        result.convenience.push(item);
+      } else if (
+        t.shop === "supermarket" ||
+        t.shop === "mall" ||
+        t.shop === "department_store" ||
+        t.amenity === "marketplace"
+      ) {
+        result.shopping.push(item);
+      } else if (
+        t.amenity === "restaurant" ||
+        t.amenity === "cafe" ||
+        t.amenity === "fast_food" ||
+        t.amenity === "food_court"
+      ) {
+        result.food.push(item);
+      } else if (
+        t.public_transport ||
+        t.railway === "station" ||
+        t.highway === "bus_stop" ||
+        t.amenity === "bus_station"
+      ) {
+        result.transport.push(item);
+      } else if (
+        t.leisure === "park" ||
+        t.leisure === "fitness_centre" ||
+        t.leisure === "sports_centre" ||
+        t.leisure === "playground"
+      ) {
+        result.recreation.push(item);
+      } else if (
+        t.amenity === "post_office" ||
+        t.amenity === "police" ||
+        t.amenity === "hospital" ||
+        t.amenity === "clinic" ||
+        t.office === "government"
+      ) {
+        result.public_service.push(item);
       }
     });
 
-    const text = response.text;
-    if(!text) throw new Error("No route response");
-    
-    return JSON.parse(text) as RouteOption[];
+    const limit = (arr: PlaceItem[]) => arr.slice(0, 10);
+    result.residential = limit(result.residential);
+    result.convenience = limit(result.convenience);
+    result.shopping = limit(result.shopping);
+    result.food = limit(result.food);
+    result.transport = limit(result.transport);
+    result.recreation = limit(result.recreation);
+    result.public_service = limit(result.public_service);
+
+    return result;
   } catch (error) {
-    console.error("Routing Error:", error);
-    throw new Error("ไม่สามารถคำนวณเส้นทางได้");
+    console.error("Analysis Error:", error);
+    throw new Error("ไม่สามารถวิเคราะห์พื้นที่ได้ในขณะนี้");
   }
-}
+};

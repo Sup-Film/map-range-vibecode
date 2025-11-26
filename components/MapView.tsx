@@ -1,9 +1,8 @@
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Polygon, useMap, useMapEvents, Popup, ScaleControl, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import { Loader2, Flag } from 'lucide-react';
-import { Location, AnalysisResult, PlaceItem, ViewMode } from '../types';
+import { Location, AnalysisResult, PlaceItem, ViewMode, RouteOption } from '../types';
 
 // Fix for default Leaflet marker icons in ESM/CDN environments
 const iconUrl = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png';
@@ -41,6 +40,7 @@ interface MapViewProps {
   analysis?: AnalysisResult | null;
   isLoading?: boolean;
   viewMode: ViewMode;
+  selectedRoute?: RouteOption | null;
 }
 
 // ----------------------------------------------------------------------
@@ -120,10 +120,6 @@ const LocationSelector: React.FC<{
 }> = ({ onSelect, viewMode }) => {
   useMapEvents({
     click(e) {
-      // In route mode, normal click selects Destination if not right click? 
-      // Let's stick to Center select on left click for consistency, 
-      // but maybe disable it in route mode if we want strict behavior.
-      // For now, Left Click = Center, Right Click = Destination
       if (viewMode !== 'route') {
         onSelect({ lat: e.latlng.lat, lng: e.latlng.lng }, false);
       }
@@ -297,7 +293,6 @@ const AnalyzedPlaceMarkers: React.FC<{ analysis: AnalysisResult | null | undefin
     return markers;
   }, [analysis]);
 
-  // Imperative Clustering
   useEffect(() => {
     if (!analysis || !clusteringAvailable) return;
 
@@ -317,7 +312,6 @@ const AnalyzedPlaceMarkers: React.FC<{ analysis: AnalysisResult | null | undefin
         const container = document.createElement('div');
         container.className = "font-sans min-w-[200px]";
         
-        // Render Rating stars in popup
         const stars = item.rating ? `
           <div class="flex items-center gap-1 mb-2">
             <span class="text-amber-500 font-bold text-sm">★ ${item.rating.toFixed(1)}</span>
@@ -364,7 +358,6 @@ const AnalyzedPlaceMarkers: React.FC<{ analysis: AnalysisResult | null | undefin
 
   if (clusteringAvailable) return null;
 
-  // Fallback if clustering fails
   return (
     <>
       {allMarkers.map(({ item, icon }, idx) => (
@@ -374,21 +367,15 @@ const AnalyzedPlaceMarkers: React.FC<{ analysis: AnalysisResult | null | undefin
   );
 };
 
-// Heatmap Layer using L.heatLayer
 const HeatmapLayer: React.FC<{ analysis: AnalysisResult | null }> = ({ analysis }) => {
   const map = useMap();
 
   useEffect(() => {
     if (!analysis) return;
-
-    // Collect all points [lat, lng, intensity]
-    // Intensity is derived from 'popularity' (0-1) or defaults to 0.5
     const points: [number, number, number][] = [];
-    
     const extract = (items: PlaceItem[]) => {
       items.forEach(item => {
         if (item.lat && item.lng) {
-          // Boost intensity for highly rated places or transport hubs
           let intensity = item.popularity || 0.5;
           if (item.rating && item.rating > 4.5) intensity += 0.2;
           points.push([item.lat, item.lng, Math.min(intensity, 1.0)]);
@@ -405,22 +392,18 @@ const HeatmapLayer: React.FC<{ analysis: AnalysisResult | null }> = ({ analysis 
     extract(analysis.public_service);
 
     const L_Global = (window as any).L;
-    if (!L_Global || !L_Global.heatLayer) {
-      console.warn("Leaflet.heat not loaded");
-      return;
-    }
+    if (!L_Global || !L_Global.heatLayer) return;
 
     const heat = L_Global.heatLayer(points, {
         radius: 35,
         blur: 20,
         maxZoom: 15,
-        // Gradient: Blue -> Cyan -> Green -> Yellow -> Red
         gradient: {
-            0.1: '#3b82f6', // blue-500
-            0.3: '#06b6d4', // cyan-500
-            0.5: '#22c55e', // green-500
-            0.7: '#eab308', // yellow-500
-            1.0: '#ef4444'  // red-500
+            0.1: '#3b82f6',
+            0.3: '#06b6d4',
+            0.5: '#22c55e',
+            0.7: '#eab308',
+            1.0: '#ef4444'
         }
     }).addTo(map);
 
@@ -437,14 +420,41 @@ const MapLoadingOverlay = () => (
       <div className="bg-white/95 backdrop-blur px-6 py-4 rounded-2xl shadow-2xl border border-indigo-100 flex flex-col items-center gap-2 animate-in fade-in zoom-in duration-300">
            <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
            <div className="text-center">
-             <p className="text-slate-800 font-bold text-sm">กำลังวิเคราะห์...</p>
-             <p className="text-slate-500 text-xs">AI กำลังค้นหาสถานที่รอบๆ</p>
+             <p className="text-slate-800 font-bold text-sm">กำลังทำงาน...</p>
+             <p className="text-slate-500 text-xs">กรุณารอสักครู่</p>
            </div>
       </div>
   </div>
 );
 
-const MapView: React.FC<MapViewProps> = ({ center, destination, radius, onLocationSelect, analysis, isLoading, viewMode }) => {
+const RouteVisualizer: React.FC<{ route: RouteOption }> = ({ route }) => {
+    const map = useMap();
+
+    useEffect(() => {
+        if (route && route.coordinates && route.coordinates.length > 0) {
+            // Fit bounds to show the entire route
+            const bounds = L.latLngBounds(route.coordinates);
+            map.fitBounds(bounds, { padding: [50, 50] });
+        }
+    }, [route, map]);
+
+    if (!route.coordinates || route.coordinates.length === 0) return null;
+
+    return (
+        <Polyline 
+            positions={route.coordinates}
+            pathOptions={{ 
+                color: '#4f46e5', // Indigo-600
+                weight: 6,
+                opacity: 0.9,
+                lineCap: 'round',
+                lineJoin: 'round',
+            }}
+        />
+    );
+};
+
+const MapView: React.FC<MapViewProps> = ({ center, destination, radius, onLocationSelect, analysis, isLoading, viewMode, selectedRoute }) => {
   return (
     <div className="h-full w-full z-0 relative">
       <MapContainer 
@@ -486,17 +496,22 @@ const MapView: React.FC<MapViewProps> = ({ center, destination, radius, onLocati
               <Marker position={[destination.lat, destination.lng]} icon={DestinationIcon}>
                  <Popup>จุดหมายปลายทาง (Destination)</Popup>
               </Marker>
-              <Polyline 
-                positions={[[center.lat, center.lng], [destination.lat, destination.lng]]}
-                pathOptions={{ 
-                  color: '#4f46e5', // Indigo-600 
-                  weight: 5, 
-                  opacity: 0.9, 
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                  dashArray: undefined // Solid line for route
-                }}
-              />
+              
+              {/* Show the selected precise route if available, otherwise fallback to simple line */}
+              {selectedRoute && selectedRoute.coordinates ? (
+                 <RouteVisualizer route={selectedRoute} />
+              ) : (
+                // Fallback straight line if no route calculated yet or API failed
+                 <Polyline 
+                    positions={[[center.lat, center.lng], [destination.lat, destination.lng]]}
+                    pathOptions={{ 
+                    color: '#94a3b8', 
+                    weight: 4, 
+                    opacity: 0.5, 
+                    dashArray: '10, 10'
+                    }}
+                 />
+              )}
            </>
         )}
 
