@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   MapPin,
   Navigation,
@@ -26,6 +26,7 @@ import {
   ChevronDown,
   ChevronUp,
   Ruler,
+  ChevronDownCircle,
 } from "lucide-react";
 import {
   Location,
@@ -77,6 +78,16 @@ const Controls: React.FC<ControlsProps> = ({
   const [urlQuery, setUrlQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
+
+  // State for controlling "Load More" per category
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+  const INITIAL_VISIBLE_COUNT = 5;
+  const LOAD_MORE_STEP = 10;
+
+  // Reset visible counts when analysis changes
+  useEffect(() => {
+    setVisibleCounts({});
+  }, [analysis]);
 
   const radiusDisplay =
     radius >= 1000 ? `${(radius / 1000).toFixed(1)} กม.` : `${radius} ม.`;
@@ -147,9 +158,15 @@ const Controls: React.FC<ControlsProps> = ({
     title: string,
     icon: React.ReactNode,
     items: PlaceItem[],
-    colorClass: string
+    colorClass: string,
+    categoryKey: string
   ) => {
     if (!items || items.length === 0) return null;
+
+    const limit = visibleCounts[categoryKey] || INITIAL_VISIBLE_COUNT;
+    const visibleItems = items.slice(0, limit);
+    const hasMore = items.length > limit;
+
     return (
       <div className="mb-4 last:mb-0">
         <h4
@@ -161,7 +178,7 @@ const Controls: React.FC<ControlsProps> = ({
           </span>
         </h4>
         <ul className="space-y-2">
-          {items.map((item, idx) => (
+          {visibleItems.map((item, idx) => (
             <li
               key={idx}
               className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors group">
@@ -198,6 +215,20 @@ const Controls: React.FC<ControlsProps> = ({
             </li>
           ))}
         </ul>
+        
+        {/* Load More Button */}
+        {hasMore && (
+          <button 
+            onClick={() => setVisibleCounts(prev => ({
+              ...prev,
+              [categoryKey]: limit + LOAD_MORE_STEP
+            }))}
+            className="w-full mt-2 py-1.5 text-xs text-slate-500 font-medium bg-white border border-slate-200 rounded hover:bg-slate-50 hover:text-slate-700 transition-colors flex items-center justify-center gap-1"
+          >
+            <ChevronDownCircle className="w-3 h-3" />
+            แสดงเพิ่มอีก {Math.min(LOAD_MORE_STEP, items.length - limit)} รายการ
+          </button>
+        )}
       </div>
     );
   };
@@ -390,43 +421,50 @@ const Controls: React.FC<ControlsProps> = ({
                     "ที่อยู่อาศัย",
                     <Home className="w-4 h-4" />,
                     analysis.residential,
-                    "text-blue-600"
+                    "text-blue-600",
+                    "residential"
                   )}
                   {renderCategory(
                     "ร้านสะดวกซื้อ",
                     <Store className="w-4 h-4" />,
                     analysis.convenience,
-                    "text-orange-600"
+                    "text-orange-600",
+                    "convenience"
                   )}
                   {renderCategory(
                     "ห้าง/ตลาด",
                     <ShoppingCart className="w-4 h-4" />,
                     analysis.shopping,
-                    "text-purple-600"
+                    "text-purple-600",
+                    "shopping"
                   )}
                   {renderCategory(
                     "ร้านอาหาร",
                     <Utensils className="w-4 h-4" />,
                     analysis.food,
-                    "text-green-600"
+                    "text-green-600",
+                    "food"
                   )}
                   {renderCategory(
                     "การเดินทาง",
                     <Bus className="w-4 h-4" />,
                     analysis.transport,
-                    "text-cyan-600"
+                    "text-cyan-600",
+                    "transport"
                   )}
                   {renderCategory(
                     "นันทนาการ",
                     <TreePine className="w-4 h-4" />,
                     analysis.recreation,
-                    "text-emerald-600"
+                    "text-emerald-600",
+                    "recreation"
                   )}
                   {renderCategory(
                     "บริการสาธารณะ",
                     <Building2 className="w-4 h-4" />,
                     analysis.public_service,
-                    "text-slate-600"
+                    "text-slate-600",
+                    "public_service"
                   )}
                 </div>
               </div>
@@ -545,110 +583,97 @@ const Controls: React.FC<ControlsProps> = ({
                 </>
               ) : (
                 <>
-                  <Navigation className="w-5 h-5 rotate-90" />
+                  <Navigation className="w-5 h-5" />
                   แนะนำเส้นทาง
                 </>
               )}
             </button>
 
-            {/* Hint */}
-            {!destination && (
-              <div className="text-center text-slate-400 text-sm py-4 border-2 border-dashed border-slate-100 rounded-xl">
-                <p>
-                  คลิกขวา (Right Click) บนแผนที่
-                  <br />
-                  เพื่อกำหนดจุดปลายทาง
-                </p>
-              </div>
-            )}
-
-            {/* Route Results */}
+            {/* Routes List */}
             {status === AppStatus.SUCCESS && routes && (
-              <div className="space-y-4 pb-10">
-                <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                  เส้นทางแนะนำ ({routes.length})
-                </h3>
-
+              <div className="space-y-4 pt-2">
                 {routes.map((route) => {
                   const isExpanded = selectedRoute?.id === route.id;
-
                   return (
                     <div
                       key={route.id}
                       className={`
-                        bg-white rounded-xl border shadow-sm overflow-hidden transition-all duration-300
+                        border rounded-xl transition-all duration-300 overflow-hidden
                         ${
                           isExpanded
-                            ? "border-indigo-300 ring-2 ring-indigo-50 shadow-md"
-                            : "border-slate-200 hover:border-indigo-200"
+                            ? "bg-white border-indigo-200 ring-1 ring-indigo-200 shadow-md"
+                            : "bg-white border-slate-100 hover:border-indigo-100 hover:bg-slate-50"
                         }
-                      `}>
-                      {/* Card Header (Click to toggle) */}
-                      <div
-                        onClick={() => toggleRouteExpand(route)}
-                        className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-start cursor-pointer hover:bg-indigo-50/50 transition-colors">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            {route.recommended && (
-                              <span className="bg-green-100 text-green-700 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide">
-                                แนะนำ
-                              </span>
-                            )}
-                            <h4 className="font-bold text-slate-700 text-sm">
-                              {route.title}
-                            </h4>
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-slate-500">
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {route.totalDuration}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Ruler className="w-3 h-3" />
-                              {route.totalDistance}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Wallet className="w-3 h-3" />
-                              {route.totalCost}
-                            </span>
-                          </div>
-                        </div>
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-slate-400" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-slate-400" />
-                        )}
-                      </div>
-
-                      {/* Expanded Details */}
-                      {isExpanded && (
-                        <div className="p-4 bg-white animate-fade-in">
-                          <div className="relative pl-4 border-l-2 border-slate-100 space-y-4">
-                            {route.steps.map((step, idx) => (
-                              <div key={idx} className="relative">
-                                <div className="absolute -left-[21px] top-0 w-2.5 h-2.5 rounded-full bg-indigo-100 border border-indigo-300"></div>
-                                <div className="text-xs text-slate-800 font-medium">
-                                  {step.instruction}
+                      `}
+                      onClick={() => toggleRouteExpand(route)}>
+                      
+                      {/* Card Header */}
+                      <div className="p-4 cursor-pointer">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                                <Car className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h3 className="font-bold text-slate-800 text-sm">
+                                {route.title}
+                              </h3>
+                              <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                                <div className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {route.totalDuration}
                                 </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 rounded flex items-center gap-1">
-                                    {getTransportIcon(step.mode)}
-                                    {step.mode}
-                                  </span>
-                                  {step.duration && (
-                                    <span className="text-[10px] text-slate-400">
-                                      {step.duration}
-                                    </span>
-                                  )}
-                                  {step.distance && (
-                                    <span className="text-[10px] text-slate-400 border-l border-slate-200 pl-2">
-                                      {step.distance}
-                                    </span>
-                                  )}
+                                <div className="flex items-center gap-1">
+                                  <Ruler className="w-3 h-3" />
+                                  {route.totalDistance}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Wallet className="w-3 h-3" />
+                                  {route.totalCost}
                                 </div>
                               </div>
-                            ))}
+                            </div>
                           </div>
+                          {isExpanded ? (
+                             <ChevronUp className="w-4 h-4 text-slate-400" />
+                          ) : (
+                             <ChevronDown className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expanded Details (Steps) */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-100 bg-slate-50/50 p-4">
+                            <div className="relative pl-2 space-y-4">
+                                {/* Dotted Line */}
+                                <div className="absolute left-[15px] top-2 bottom-2 w-0.5 border-l border-dashed border-slate-300" />
+                                
+                                {route.steps.map((step, sIdx) => (
+                                    <div key={sIdx} className="relative flex gap-3">
+                                        <div className="w-7 h-7 rounded-full bg-white border border-slate-200 flex items-center justify-center shrink-0 z-10 shadow-sm text-slate-500">
+                                            {getTransportIcon(step.mode)}
+                                        </div>
+                                        <div className="flex-1 py-1">
+                                            <p className="text-xs text-slate-700 font-medium leading-relaxed">
+                                                {step.instruction}
+                                            </p>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                {step.duration && (
+                                                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 rounded">
+                                                        {step.duration}
+                                                    </span>
+                                                )}
+                                                {step.distance && (
+                                                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 rounded">
+                                                        {step.distance}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                       )}
                     </div>
@@ -661,8 +686,8 @@ const Controls: React.FC<ControlsProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-slate-200 bg-slate-50 text-[10px] text-slate-400 text-center shrink-0">
-        Powered by OpenStreetMap, OSRM & Google Gemini AI
+      <div className="p-4 border-t border-slate-200 bg-slate-50 text-[10px] text-center text-slate-400">
+        Powered by OpenStreetMap, OSRM & Gemini 3.0 Pro
       </div>
     </div>
   );

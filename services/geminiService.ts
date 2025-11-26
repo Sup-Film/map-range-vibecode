@@ -49,7 +49,29 @@ export const analyzeLocation = async (
       method: "POST",
       body: query,
     });
+    
+    if (!response.ok) {
+        throw new Error(`Overpass API Error: ${response.statusText}`);
+    }
+
     const data = await response.json();
+    
+    // Validate response structure
+    if (!data || !data.elements) {
+        // Return empty result if no elements or bad format
+        return {
+            locationName: `พื้นที่รอบพิกัด ${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`,
+            summary: "ไม่พบข้อมูลสถานที่ในบริเวณนี้",
+            residential: [],
+            convenience: [],
+            shopping: [],
+            food: [],
+            transport: [],
+            recreation: [],
+            public_service: [],
+        };
+    }
+    
     const elements = data.elements as OverpassElement[];
 
     // Helper to calculate distance
@@ -73,18 +95,16 @@ export const analyzeLocation = async (
     };
 
     // Helper to format place item
-    const formatPlace = (e: OverpassElement): PlaceItem => {
+    const formatPlace = (e: OverpassElement): PlaceItem | null => {
+      // Filter out places with no name
+      const name = e.tags["name:th"] || e.tags["name"] || e.tags["name:en"];
+      if (!name) return null;
+
       const distKm = getDistance(location.lat, location.lng, e.lat, e.lon);
       const distStr =
         distKm < 1
           ? `${(distKm * 1000).toFixed(0)} ม.`
           : `${distKm.toFixed(1)} กม.`;
-
-      const name =
-        e.tags["name:th"] ||
-        e.tags["name"] ||
-        e.tags["name:en"] ||
-        "สถานที่ระบุชื่อไม่ได้";
 
       return {
         name: name,
@@ -116,6 +136,8 @@ export const analyzeLocation = async (
     elements.forEach((e) => {
       if (!e.tags) return;
       const item = formatPlace(e);
+      if (!item) return; // Skip if item is null (no name)
+
       const t = e.tags;
 
       if (
@@ -168,15 +190,6 @@ export const analyzeLocation = async (
         result.public_service.push(item);
       }
     });
-
-    const limit = (arr: PlaceItem[]) => arr.slice(0, 10);
-    result.residential = limit(result.residential);
-    result.convenience = limit(result.convenience);
-    result.shopping = limit(result.shopping);
-    result.food = limit(result.food);
-    result.transport = limit(result.transport);
-    result.recreation = limit(result.recreation);
-    result.public_service = limit(result.public_service);
 
     return result;
   } catch (error) {
