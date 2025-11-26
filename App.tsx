@@ -2,8 +2,8 @@
 import React, { useState } from 'react';
 import MapView from './components/MapView';
 import Controls from './components/Controls';
-import { Location, AppStatus, AnalysisResult, ViewMode } from './types';
-import { analyzeLocation } from './services/geminiService';
+import { Location, AppStatus, AnalysisResult, ViewMode, RouteOption } from './types';
+import { analyzeLocation, suggestRoute } from './services/geminiService';
 
 // Default center (Bangkok)
 const DEFAULT_CENTER: Location = { lat: 13.7563, lng: 100.5018 };
@@ -11,21 +11,30 @@ const DEFAULT_RADIUS = 1000; // 1km
 
 const App: React.FC = () => {
   const [center, setCenter] = useState<Location>(DEFAULT_CENTER);
+  const [destination, setDestination] = useState<Location | null>(null);
+  
   const [radius, setRadius] = useState<number>(DEFAULT_RADIUS);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   
-  // New State: View Mode (Markers vs Heatmap)
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [routes, setRoutes] = useState<RouteOption[] | null>(null);
+  
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('markers');
 
-  // Helper to update location and reset analysis
-  const handleLocationUpdate = (loc: Location) => {
-    setCenter(loc);
-    // Optional: Reset analysis when location changes to avoid confusion
-    if (analysis) {
-       setStatus(AppStatus.IDLE);
-       setAnalysis(null);
+  // Helper to update location and reset analysis/routes
+  const handleLocationUpdate = (loc: Location, isDestination: boolean = false) => {
+    if (isDestination) {
+      setDestination(loc);
+      setRoutes(null); // Reset routes when dest changes
+    } else {
+      setCenter(loc);
+      // Reset analysis only if in analysis mode, otherwise maintain state
+      if (viewMode !== 'route') {
+        setStatus(AppStatus.IDLE);
+        setAnalysis(null);
+      }
+      setRoutes(null);
     }
   };
 
@@ -55,13 +64,25 @@ const App: React.FC = () => {
       const result = await analyzeLocation(center, radius);
       setAnalysis(result);
       setStatus(AppStatus.SUCCESS);
-      
-      // On mobile, if analysis is done, user might want to see the result, 
-      // ensuring sidebar is open
       setSidebarOpen(true);
     } catch (error) {
       console.error(error);
       setStatus(AppStatus.ERROR);
+    }
+  };
+
+  const handleCalculateRoute = async () => {
+    if (!center || !destination) return;
+    setStatus(AppStatus.LOADING);
+    setRoutes(null);
+    try {
+      const results = await suggestRoute(center, destination);
+      setRoutes(results);
+      setStatus(AppStatus.SUCCESS);
+      setSidebarOpen(true);
+    } catch (error) {
+       console.error(error);
+       setStatus(AppStatus.ERROR);
     }
   };
 
@@ -81,11 +102,14 @@ const App: React.FC = () => {
       >
         <Controls 
           location={center}
+          destination={destination}
           radius={radius}
           setRadius={setRadius}
           status={status}
           analysis={analysis}
+          routes={routes}
           onAnalyze={handleAnalyze}
+          onCalculateRoute={handleCalculateRoute}
           onLocateMe={handleLocateMe}
           onLocationSelect={handleLocationUpdate}
           viewMode={viewMode}
@@ -105,6 +129,7 @@ const App: React.FC = () => {
       <div className="flex-1 h-full w-full relative">
         <MapView 
           center={center} 
+          destination={destination}
           radius={radius} 
           onLocationSelect={handleLocationUpdate}
           analysis={analysis}

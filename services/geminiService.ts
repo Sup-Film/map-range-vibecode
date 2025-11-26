@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Location, AnalysisResult } from "../types";
+import { Location, AnalysisResult, RouteOption } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -49,7 +49,7 @@ export const analyzeLocation = async (
     };
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -140,7 +140,7 @@ export const searchLocation = async (query: string): Promise<Location> => {
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -164,3 +164,66 @@ export const searchLocation = async (query: string): Promise<Location> => {
     throw new Error("ไม่พบสถานที่ดังกล่าว");
   }
 };
+
+export const suggestRoute = async (origin: Location, destination: Location): Promise<RouteOption[]> => {
+  try {
+    const prompt = `
+      Act as a smart navigation assistant for Thailand.
+      Plan a trip from Origin [Lat: ${origin.lat}, Lng: ${origin.lng}] to Destination [Lat: ${destination.lat}, Lng: ${destination.lng}].
+      
+      Provide 2-3 distinct route options prioritizing Public Transportation (BTS, MRT, ARL, Bus, Boat).
+      If public transport is poor, include a Taxi/Ride-hailing option.
+      
+      For each option, provide:
+      1. A short title (e.g. "BTS Green Line + Taxi").
+      2. Total estimated duration (e.g. "45 mins").
+      3. Total estimated cost in THB (e.g. "60-100 THB").
+      4. Step-by-step instructions.
+      5. Mode of transport for each step (walk, bus, train, car, motorcycle).
+      
+      Output in THAI language.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-pro-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              title: { type: Type.STRING },
+              totalDuration: { type: Type.STRING },
+              totalCost: { type: Type.STRING },
+              recommended: { type: Type.BOOLEAN },
+              steps: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    instruction: { type: Type.STRING },
+                    distance: { type: Type.STRING },
+                    duration: { type: Type.STRING },
+                    mode: { type: Type.STRING, enum: ['walk', 'bus', 'train', 'car', 'motorcycle'] }
+                  }
+                }
+              }
+            },
+            required: ["id", "title", "totalDuration", "totalCost", "steps"]
+          }
+        }
+      }
+    });
+
+    const text = response.text;
+    if(!text) throw new Error("No route response");
+    
+    return JSON.parse(text) as RouteOption[];
+  } catch (error) {
+    console.error("Routing Error:", error);
+    throw new Error("ไม่สามารถคำนวณเส้นทางได้");
+  }
+}

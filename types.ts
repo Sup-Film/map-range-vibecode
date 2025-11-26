@@ -29,6 +29,22 @@ export interface AnalysisResult {
   public_service: PlaceItem[]; // สถานที่ราชการ, สถานีตำรวจ, ไปรษณีย์
 }
 
+export interface RouteStep {
+  instruction: string; // "Walk to BTS Siam"
+  distance?: string;   // "500 m"
+  duration?: string;   // "5 mins"
+  mode: 'walk' | 'bus' | 'train' | 'car' | 'motorcycle';
+}
+
+export interface RouteOption {
+  id: string;
+  title: string;       // "BTS + Walking"
+  totalDuration: string;
+  totalCost: string;
+  steps: RouteStep[];
+  recommended: boolean;
+}
+
 export enum AppStatus {
   IDLE = 'IDLE',
   LOADING = 'LOADING',
@@ -36,4 +52,4 @@ export enum AppStatus {
   ERROR = 'ERROR'
 }
 
-export type ViewMode = 'markers' | 'heatmap';
+export type ViewMode = 'markers' | 'heatmap' | 'route';

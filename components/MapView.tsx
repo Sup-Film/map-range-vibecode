@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Polygon, useMap, useMapEvents, Popup, ScaleControl, Polyline } from 'react-leaflet';
 import L from 'leaflet';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Flag } from 'lucide-react';
 import { Location, AnalysisResult, PlaceItem, ViewMode } from '../types';
 
 // Fix for default Leaflet marker icons in ESM/CDN environments
@@ -17,10 +17,27 @@ let DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
+// Custom Destination Icon (Red)
+const DestinationIcon = L.divIcon({
+  className: 'custom-dest-marker',
+  html: `
+    <div style="
+      color: #dc2626;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+    ">
+      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#dc2626" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg>
+    </div>
+  `,
+  iconSize: [32, 32],
+  iconAnchor: [4, 32],
+  popupAnchor: [0, -32]
+});
+
 interface MapViewProps {
   center: Location;
+  destination: Location | null;
   radius: number;
-  onLocationSelect: (loc: Location) => void;
+  onLocationSelect: (loc: Location, isDestination?: boolean) => void;
   analysis?: AnalysisResult | null;
   isLoading?: boolean;
   viewMode: ViewMode;
@@ -30,7 +47,7 @@ interface MapViewProps {
 // Geodesic Math Helper
 // ----------------------------------------------------------------------
 const calculateDestination = (lat: number, lng: number, distanceMeters: number, bearingDegrees: number) => {
-  const R = 6371e3; // รัศมีโลกเฉลี่ย (เมตร)
+  const R = 6371e3; // Earth radius (meters)
   const rad = (x: number) => x * Math.PI / 180;
   const deg = (x: number) => x * 180 / Math.PI;
 
@@ -97,11 +114,25 @@ const icons = {
 // Components
 // ----------------------------------------------------------------------
 
-const LocationSelector: React.FC<{ onSelect: (loc: Location) => void }> = ({ onSelect }) => {
+const LocationSelector: React.FC<{ 
+  onSelect: (loc: Location, isDest?: boolean) => void;
+  viewMode: ViewMode;
+}> = ({ onSelect, viewMode }) => {
   useMapEvents({
     click(e) {
-      onSelect({ lat: e.latlng.lat, lng: e.latlng.lng });
+      // In route mode, normal click selects Destination if not right click? 
+      // Let's stick to Center select on left click for consistency, 
+      // but maybe disable it in route mode if we want strict behavior.
+      // For now, Left Click = Center, Right Click = Destination
+      if (viewMode !== 'route') {
+        onSelect({ lat: e.latlng.lat, lng: e.latlng.lng }, false);
+      }
     },
+    contextmenu(e) {
+      if (viewMode === 'route') {
+        onSelect({ lat: e.latlng.lat, lng: e.latlng.lng }, true);
+      }
+    }
   });
   return null;
 };
@@ -413,7 +444,7 @@ const MapLoadingOverlay = () => (
   </div>
 );
 
-const MapView: React.FC<MapViewProps> = ({ center, radius, onLocationSelect, analysis, isLoading, viewMode }) => {
+const MapView: React.FC<MapViewProps> = ({ center, destination, radius, onLocationSelect, analysis, isLoading, viewMode }) => {
   return (
     <div className="h-full w-full z-0 relative">
       <MapContainer 
@@ -429,33 +460,79 @@ const MapView: React.FC<MapViewProps> = ({ center, radius, onLocationSelect, ana
         
         <ScaleControl position="bottomleft" metric={true} imperial={false} />
         
-        <LocationSelector onSelect={onLocationSelect} />
+        <LocationSelector onSelect={onLocationSelect} viewMode={viewMode} />
         <MapRecenter center={center} />
-        <DistanceMarkers center={center} radius={radius} />
+
+        {/* --- Layers based on ViewMode --- */}
+
+        {/* 1. Radius & Markers Mode (Analysis) */}
+        {(viewMode === 'markers' || viewMode === 'heatmap') && (
+          <>
+            <DistanceMarkers center={center} radius={radius} />
+            <GeodesicCircle 
+              center={center} 
+              radius={radius}
+              pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.1, weight: 2 }}
+            />
+          </>
+        )}
         
-        {/* Toggle between Marker Clusters and Heatmap */}
         {viewMode === 'markers' && <AnalyzedPlaceMarkers analysis={analysis} />}
         {viewMode === 'heatmap' && <HeatmapLayer analysis={analysis} />}
 
+        {/* 2. Route Mode */}
+        {viewMode === 'route' && destination && (
+           <>
+              <Marker position={[destination.lat, destination.lng]} icon={DestinationIcon}>
+                 <Popup>จุดหมายปลายทาง (Destination)</Popup>
+              </Marker>
+              <Polyline 
+                positions={[[center.lat, center.lng], [destination.lat, destination.lng]]}
+                pathOptions={{ 
+                  color: '#4f46e5', // Indigo-600 
+                  weight: 5, 
+                  opacity: 0.9, 
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  dashArray: undefined // Solid line for route
+                }}
+              />
+           </>
+        )}
+
+        {/* Center Marker (Always visible as Origin) */}
         <Marker position={[center.lat, center.lng]}>
              <Popup>
-                จุดกึ่งกลาง (Center)<br/>
+                จุดเริ่มต้น (Origin)<br/>
                 Lat: {center.lat.toFixed(4)}<br/>
                 Lng: {center.lng.toFixed(4)}
              </Popup>
         </Marker>
 
-        <GeodesicCircle 
-          center={center} 
-          radius={radius}
-          pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.1, weight: 2 }}
-        />
       </MapContainer>
       
       {isLoading && <MapLoadingOverlay />}
 
-      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[1000] bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg text-sm text-slate-600 font-medium border border-slate-200 pointer-events-none">
-        คลิกบนแผนที่เพื่อเปลี่ยนจุดศูนย์กลาง
+      {/* Enhanced Instruction Overlay */}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[1000] pointer-events-none">
+        <div className="bg-white/90 backdrop-blur-md px-4 py-2.5 rounded-full shadow-lg border border-slate-200 flex items-center gap-2.5 transition-all duration-300">
+           {viewMode === 'route' ? (
+              <>
+                <div className="relative flex h-2.5 w-2.5">
+                  {!destination && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>}
+                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${destination ? 'bg-indigo-500' : 'bg-red-500'}`}></span>
+                </div>
+                <span className="text-sm font-medium text-slate-700">
+                  {destination ? 'คลิกขวาเพื่อเปลี่ยนจุดปลายทาง' : 'คลิกขวาบนแผนที่เพื่อกำหนดปลายทาง'}
+                </span>
+              </>
+           ) : (
+              <>
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                <span className="text-sm font-medium text-slate-600">คลิกบนแผนที่เพื่อเปลี่ยนจุดศูนย์กลาง</span>
+              </>
+           )}
+        </div>
       </div>
     </div>
   );
