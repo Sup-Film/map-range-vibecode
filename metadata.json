@@ -1,0 +1,7 @@
+{
+  "name": "MapRange AI",
+  "description": "A map application to visualize distance ranges and analyze locations using Gemini AI. (เว็บแอพแผนที่สำหรับดูระยะทางวงกว้างและวิเคราะห์พื้นที่ด้วย AI)",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
