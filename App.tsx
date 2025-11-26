@@ -7,6 +7,7 @@ import {
   AnalysisResult,
   ViewMode,
   RouteOption,
+  Category,
 } from "./types";
 import { analyzeLocation } from "./services/geminiService";
 import { suggestRoute } from "./services/apiService";
@@ -28,6 +29,8 @@ const App: React.FC = () => {
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>("markers");
+  const [selectedCategory, setSelectedCategory] =
+    useState<Category>("convenience");
 
   // Helper to update location and reset analysis/routes
   const handleLocationUpdate = (
@@ -44,6 +47,7 @@ const App: React.FC = () => {
       if (viewMode !== "route") {
         setStatus(AppStatus.IDLE);
         setAnalysis(null);
+        setSelectedCategory("convenience"); // Reset category to default
       }
       setRoutes(null);
       setSelectedRoute(null);
@@ -93,9 +97,9 @@ const App: React.FC = () => {
       setRoutes(results);
       setStatus(AppStatus.SUCCESS);
       setSidebarOpen(true);
-      
+
       // Auto-select the first recommended route
-      if(results && results.length > 0) {
+      if (results && results.length > 0) {
         setSelectedRoute(results[0]);
       }
     } catch (error) {
@@ -134,6 +138,8 @@ const App: React.FC = () => {
           setViewMode={setViewMode}
           selectedRoute={selectedRoute}
           onSelectRoute={setSelectedRoute}
+          selectedCategory={selectedCategory}
+          onSelectCategory={setSelectedCategory}
         />
 
         {/* Mobile Toggle Handle (Visible only on mobile when closed/open) */}
@@ -155,6 +161,7 @@ const App: React.FC = () => {
           isLoading={status === AppStatus.LOADING}
           viewMode={viewMode}
           selectedRoute={selectedRoute}
+          selectedCategory={selectedCategory}
         />
 
         {/* Mobile Overlay Background (when sidebar is open) */}

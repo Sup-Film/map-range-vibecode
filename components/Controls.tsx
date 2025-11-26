@@ -35,6 +35,7 @@ import {
   PlaceItem,
   ViewMode,
   RouteOption,
+  Category,
 } from "../types";
 import { searchLocation } from "../services/apiService";
 
@@ -54,6 +55,8 @@ interface ControlsProps {
   setViewMode: (mode: ViewMode) => void;
   selectedRoute: RouteOption | null;
   onSelectRoute: (route: RouteOption | null) => void;
+  selectedCategory: Category;
+  onSelectCategory: (category: Category) => void;
 }
 
 const Controls: React.FC<ControlsProps> = ({
@@ -71,7 +74,9 @@ const Controls: React.FC<ControlsProps> = ({
   viewMode,
   setViewMode,
   selectedRoute,
-  onSelectRoute
+  onSelectRoute,
+  selectedCategory,
+  onSelectCategory,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [destSearchQuery, setDestSearchQuery] = useState("");
@@ -80,7 +85,9 @@ const Controls: React.FC<ControlsProps> = ({
   const [urlError, setUrlError] = useState<string | null>(null);
 
   // State for controlling "Load More" per category
-  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>(
+    {}
+  );
   const INITIAL_VISIBLE_COUNT = 5;
   const LOAD_MORE_STEP = 10;
 
@@ -136,9 +143,9 @@ const Controls: React.FC<ControlsProps> = ({
 
   const toggleRouteExpand = (route: RouteOption) => {
     if (selectedRoute?.id === route.id) {
-        onSelectRoute(null);
+      onSelectRoute(null);
     } else {
-        onSelectRoute(route);
+      onSelectRoute(route);
     }
   };
 
@@ -162,6 +169,10 @@ const Controls: React.FC<ControlsProps> = ({
     categoryKey: string
   ) => {
     if (!items || items.length === 0) return null;
+
+    // Filter logic: Only show if category matches or 'all' is selected
+    if (selectedCategory !== "all" && selectedCategory !== categoryKey)
+      return null;
 
     const limit = visibleCounts[categoryKey] || INITIAL_VISIBLE_COUNT;
     const visibleItems = items.slice(0, limit);
@@ -215,16 +226,17 @@ const Controls: React.FC<ControlsProps> = ({
             </li>
           ))}
         </ul>
-        
+
         {/* Load More Button */}
         {hasMore && (
-          <button 
-            onClick={() => setVisibleCounts(prev => ({
-              ...prev,
-              [categoryKey]: limit + LOAD_MORE_STEP
-            }))}
-            className="w-full mt-2 py-1.5 text-xs text-slate-500 font-medium bg-white border border-slate-200 rounded hover:bg-slate-50 hover:text-slate-700 transition-colors flex items-center justify-center gap-1"
-          >
+          <button
+            onClick={() =>
+              setVisibleCounts((prev) => ({
+                ...prev,
+                [categoryKey]: limit + LOAD_MORE_STEP,
+              }))
+            }
+            className="w-full mt-2 py-1.5 text-xs text-slate-500 font-medium bg-white border border-slate-200 rounded hover:bg-slate-50 hover:text-slate-700 transition-colors flex items-center justify-center gap-1">
             <ChevronDownCircle className="w-3 h-3" />
             แสดงเพิ่มอีก {Math.min(LOAD_MORE_STEP, items.length - limit)} รายการ
           </button>
@@ -248,6 +260,46 @@ const Controls: React.FC<ControlsProps> = ({
         return <Navigation className="w-3 h-3" />;
     }
   };
+
+  const categories: { key: Category; label: string; icon: React.ReactNode }[] =
+    [
+      { key: "all", label: "ทั้งหมด", icon: <Layers className="w-3 h-3" /> },
+      {
+        key: "convenience",
+        label: "ร้านสะดวกซื้อ",
+        icon: <Store className="w-3 h-3" />,
+      },
+      {
+        key: "food",
+        label: "ร้านอาหาร",
+        icon: <Utensils className="w-3 h-3" />,
+      },
+      {
+        key: "shopping",
+        label: "ห้าง/ตลาด",
+        icon: <ShoppingCart className="w-3 h-3" />,
+      },
+      {
+        key: "transport",
+        label: "การเดินทาง",
+        icon: <Bus className="w-3 h-3" />,
+      },
+      {
+        key: "residential",
+        label: "ที่อยู่อาศัย",
+        icon: <Home className="w-3 h-3" />,
+      },
+      {
+        key: "recreation",
+        label: "นันทนาการ",
+        icon: <TreePine className="w-3 h-3" />,
+      },
+      {
+        key: "public_service",
+        label: "บริการสาธารณะ",
+        icon: <Building2 className="w-3 h-3" />,
+      },
+    ];
 
   return (
     <div className="bg-white h-full flex flex-col shadow-xl border-r border-slate-200 w-full max-w-md z-10 relative">
@@ -416,20 +468,41 @@ const Controls: React.FC<ControlsProps> = ({
                     {analysis.summary}
                   </p>
                 </div>
+
+                {/* Category Filter Chips */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {categories.map((cat) => (
+                    <button
+                      key={cat.key}
+                      onClick={() => onSelectCategory(cat.key)}
+                      className={`
+                        flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all
+                        ${
+                          selectedCategory === cat.key
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }
+                      `}>
+                      {cat.icon}
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="space-y-2">
-                  {renderCategory(
-                    "ที่อยู่อาศัย",
-                    <Home className="w-4 h-4" />,
-                    analysis.residential,
-                    "text-blue-600",
-                    "residential"
-                  )}
                   {renderCategory(
                     "ร้านสะดวกซื้อ",
                     <Store className="w-4 h-4" />,
                     analysis.convenience,
                     "text-orange-600",
                     "convenience"
+                  )}
+                  {renderCategory(
+                    "ร้านอาหาร",
+                    <Utensils className="w-4 h-4" />,
+                    analysis.food,
+                    "text-green-600",
+                    "food"
                   )}
                   {renderCategory(
                     "ห้าง/ตลาด",
@@ -439,11 +512,11 @@ const Controls: React.FC<ControlsProps> = ({
                     "shopping"
                   )}
                   {renderCategory(
-                    "ร้านอาหาร",
-                    <Utensils className="w-4 h-4" />,
-                    analysis.food,
-                    "text-green-600",
-                    "food"
+                    "ที่อยู่อาศัย",
+                    <Home className="w-4 h-4" />,
+                    analysis.residential,
+                    "text-blue-600",
+                    "residential"
                   )}
                   {renderCategory(
                     "การเดินทาง",
@@ -606,13 +679,12 @@ const Controls: React.FC<ControlsProps> = ({
                         }
                       `}
                       onClick={() => toggleRouteExpand(route)}>
-                      
                       {/* Card Header */}
                       <div className="p-4 cursor-pointer">
                         <div className="flex items-start justify-between">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                                <Car className="w-5 h-5" />
+                              <Car className="w-5 h-5" />
                             </div>
                             <div>
                               <h3 className="font-bold text-slate-800 text-sm">
@@ -635,9 +707,9 @@ const Controls: React.FC<ControlsProps> = ({
                             </div>
                           </div>
                           {isExpanded ? (
-                             <ChevronUp className="w-4 h-4 text-slate-400" />
+                            <ChevronUp className="w-4 h-4 text-slate-400" />
                           ) : (
-                             <ChevronDown className="w-4 h-4 text-slate-400" />
+                            <ChevronDown className="w-4 h-4 text-slate-400" />
                           )}
                         </div>
                       </div>
@@ -645,35 +717,35 @@ const Controls: React.FC<ControlsProps> = ({
                       {/* Expanded Details (Steps) */}
                       {isExpanded && (
                         <div className="border-t border-slate-100 bg-slate-50/50 p-4">
-                            <div className="relative pl-2 space-y-4">
-                                {/* Dotted Line */}
-                                <div className="absolute left-[15px] top-2 bottom-2 w-0.5 border-l border-dashed border-slate-300" />
-                                
-                                {route.steps.map((step, sIdx) => (
-                                    <div key={sIdx} className="relative flex gap-3">
-                                        <div className="w-7 h-7 rounded-full bg-white border border-slate-200 flex items-center justify-center shrink-0 z-10 shadow-sm text-slate-500">
-                                            {getTransportIcon(step.mode)}
-                                        </div>
-                                        <div className="flex-1 py-1">
-                                            <p className="text-xs text-slate-700 font-medium leading-relaxed">
-                                                {step.instruction}
-                                            </p>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                {step.duration && (
-                                                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 rounded">
-                                                        {step.duration}
-                                                    </span>
-                                                )}
-                                                {step.distance && (
-                                                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 rounded">
-                                                        {step.distance}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                          <div className="relative pl-2 space-y-4">
+                            {/* Dotted Line */}
+                            <div className="absolute left-[15px] top-2 bottom-2 w-0.5 border-l border-dashed border-slate-300" />
+
+                            {route.steps.map((step, sIdx) => (
+                              <div key={sIdx} className="relative flex gap-3">
+                                <div className="w-7 h-7 rounded-full bg-white border border-slate-200 flex items-center justify-center shrink-0 z-10 shadow-sm text-slate-500">
+                                  {getTransportIcon(step.mode)}
+                                </div>
+                                <div className="flex-1 py-1">
+                                  <p className="text-xs text-slate-700 font-medium leading-relaxed">
+                                    {step.instruction}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    {step.duration && (
+                                      <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 rounded">
+                                        {step.duration}
+                                      </span>
+                                    )}
+                                    {step.distance && (
+                                      <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 rounded">
+                                        {step.distance}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>

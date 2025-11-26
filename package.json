@@ -14,7 +14,8 @@
     "react-dom": "^19.2.0",
     "@google/genai": "^1.30.0",
     "react-leaflet": "^5.0.0",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "maplibre-gl": "^5.13.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
